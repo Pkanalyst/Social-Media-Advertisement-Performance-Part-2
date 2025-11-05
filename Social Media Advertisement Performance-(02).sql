@@ -81,48 +81,42 @@ order by event_date asc;
 SELECT LE.location,LE.Total_events
 FROM LocationEvents as LE,LocationStats as LS 
 WHERE LE.Total_events > (LS.avg_events + LS.stddev_events)
-ORDER BY
-    LE.Total_events desc
+ORDER BY LE.Total_events desc
 LIMIT 10;						
    
 '5.	Target Interest Penetration: Find the campaigns where less than 50% of the interacting users' interests'' 
    'match at least one of the target_interests of the ad. This helps identify poorly targeted campaigns.' 
    '(Requires string manipulation/comparison and aggregation on multiple tables).'
 
-   WITH CampaignInterestMetrics AS (
-    SELECT
-        C.campaign_id,
-        C.name,
-        -- Count events where AT LEAST ONE of the user's interests matches an ad target interest
-        SUM(CASE
-            -- Use EXISTS on a lateral join/subquery to check for a match
-            WHEN EXISTS (
-                SELECT 1
-                -- Unnest breaks the user's comma-separated interests string into separate rows
-                FROM UNNEST(STRING_TO_ARRAY(U.interests, ',')) AS user_interest
-                -- Check if the ad's target_interests string contains the user's interest (case-insensitive)
-                WHERE A.target_interests ILIKE '%' || TRIM(user_interest) || '%'
-            ) THEN 1
-            ELSE 0
-        END) AS matched_event_count,
+  with campaigninterestmetrics as (select C.campaign_id,C.name,
+        -- count events where at least one of the user's interests matches an ad target interest
+        sum(case
+            when exists (select 1
+                -- unnest breaks the user's comma-separated interests string into separate rows
+                from unnest(string_to_array(U.interests, ',')) as USER_INTEREST
+                -- check if the ad's target_interests string contains the user's interest (case-insensitive)
+                where A.target_interests ilike '%' || trim(USER_INTEREST) || '%'
+            ) then 1
+            else 0
+        end) as matched_event_count,
         
-        COUNT(AE.event_id) AS total_event_count
-    FROM
-        ad_events AS AE
-    INNER JOIN users AS U ON AE.user_id = U.user_id
-    INNER JOIN ads AS A ON AE.ad_id = A.ad_id
-    INNER JOIN campaigns AS C ON A.campaign_id = C.campaign_id
-    GROUP BY
-        C.campaign_id, C.name
+        count(AE.event_id) as total_event_count
+    from
+        ad_events as AE
+    inner join users as U on AE.user_id = U.user_id
+    inner join ads as A on AE.ad_id = A.ad_id
+    inner join campaigns as C on A.campaign_id = C.campaign_id
+    group by C.campaign_id, C.name
 )
-SELECT campaign_id,name,matched_event_count,total_event_count,
-    (CAST(matched_event_count AS NUMERIC) * 100.0 / total_event_count) AS penetration_rate_percent
-FROM CampaignInterestMetrics
-WHERE
-    -- Filter for campaigns where the penetration rate is less than 50%
-    (CAST(matched_event_count AS NUMERIC) * 100.0 / total_event_count) < 50
-ORDER BY
-    penetration_rate_percent ASC;
+select campaign_id,name,matched_event_count,total_event_count,
+    (cast(matched_event_count as numeric) * 100.0 / total_event_count) as penetration_rate_percent
+from campaigninterestmetrics as CIM
+where
+    -- filter for campaigns where the penetration rate is less than 50%
+    (cast(matched_event_count as numeric) * 100.0 / total_event_count) < 50
+order by penetration_rate_percent asc;
+
+ 
 
                 Advanced SQL Questions (New Focus on Sub-queries and CTEs for KPIs & Comparison)
 				
@@ -135,7 +129,7 @@ main query for comparison or ranking.
    '(NTILE or PERCENT_RANK) on the CTE's result set, or a sub-query to find the threshold value.''
    
    with campaignratio as (
-    -- 1. calculate the event-per-budget ratio for every campaign
+    
     select C.campaign_id,C.name,
         -- calculate total events per campaign
         count(AE.event_id) as total_events,C.total_budget,
